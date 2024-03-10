@@ -6,6 +6,7 @@ import os
 import cv2
 from PIL import Image
 
+
 class DetectChanges:
     def __init__(self, video_path, output_folder, change_threshold, app):
         self.video_path = video_path
@@ -18,6 +19,11 @@ class DetectChanges:
         return (current_frame / total_frames) * 100
 
     def detect_changes(self):
+
+        # Si on traite un dossier et qu'on arrête en cours de traitement
+        if self.stop:
+            return
+
         # Lecture de la vidéo
         cap = cv2.VideoCapture(self.video_path)
         if not cap.isOpened():
@@ -86,6 +92,18 @@ class DetectChanges:
         if (not self.stop): # Arrêté par fin de traitement
             app.end_process_dialog_event()
 
+class QueueTasks:
+    def __init__(self, tasks):
+        self.tasks = tasks
+        self.current_task = tasks[0]
+
+    def launch_tasks(self):
+        for task in self.tasks:
+            self.current_task = task
+            self.thread = threading.Thread(target=task.detect_changes)
+            self.thread.start()
+            self.thread.join()
+
 
 class ToplevelWindow(ctk.CTkToplevel):
     def __init__(self, *args, **kwargs):
@@ -153,14 +171,33 @@ class App(ctk.CTk):
             text="D'un Fragment à la Collection est un logiciel permettant d'extraire d'un film les différents plans qui le compose.\nSélectionnez la vidéo à traiter, le seuil de détection à appliquer et le dossier de sortie des images générées.")
         self.textbox_description.grid(row=0, column=1, columnspan=3, padx=(25, 20), pady=(5, 30), sticky="sw")
 
+        # Radio buttons - 1
+        self.radio_button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.radio_button_frame.grid(row=1, column=1, padx=(20, 20), pady=(5, 0), sticky="nsew")
+        self.radio_button_frame.grid_columnconfigure(0, weight=1)
+        self.radio_button_frame.grid_rowconfigure(0, weight=1)
+
+        self.radio_button_label = ctk.CTkLabel(self.radio_button_frame, text="Aplliquer sur :", anchor="w")
+        self.radio_button_label.grid(row=0, column=0, padx=(5, 20), pady=(0, 0), sticky="nsw")
+
+        self.radio_button_var = tk.StringVar()
+        self.radio_button_var.set("video")
+
+        self.radio_button_light = ctk.CTkRadioButton(self.radio_button_frame, text="Vidéo", variable=self.radio_button_var, value="video", command=self.update_label_text)
+        self.radio_button_light.grid(row=0, column=1, padx=(5, 20), pady=(0, 0), sticky="nsw")
+
+        self.radio_button_dark = ctk.CTkRadioButton(self.radio_button_frame, text="Dossier", variable=self.radio_button_var, value="dossier", command=self.update_label_text)
+        self.radio_button_dark.grid(row=0, column=2, padx=(5, 20), pady=(0, 0), sticky="nsw")
+
+
         # Chemin de la vidéo - 1, 2
-        self.entry_video_path_description = ctk.CTkLabel(self, text="Récupérer le chemin de la vidéo à traiter :")
-        self.entry_video_path_description.grid(row=1, column=1, padx=(25, 20), pady=(0, 0), sticky="sw")
+        self.entry_video_path_description1 = ctk.CTkLabel(self, text="Récupérer le chemin de la vidéo à traiter :")
+        self.entry_video_path_description1.grid(row=1, column=1, padx=(25, 20), pady=(0, 0), sticky="sw")
 
         self.entry_video_path = ctk.CTkEntry(self, placeholder_text="Chemin de la vidéo")
         self.entry_video_path.grid(row=2, column=1, columnspan=2, padx=(20, 20), pady=(0, 0), sticky="ew")
 
-        self.button_browse_video = ctk.CTkButton(self, text="Parcourir", fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), command=self.browse_video)
+        self.button_browse_video = ctk.CTkButton(self, text="Parcourir", fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), command=self.browse)
         self.button_browse_video.grid(row=2, column=3, padx=(20, 20), pady=(0, 0))
 
         # Seuil de détection par slider - 3
@@ -174,14 +211,14 @@ class App(ctk.CTk):
 
         self.slider_threshold = ctk.CTkSlider(self.slider_progressbar_frame, orientation="horizontal", from_=0, to=1, number_of_steps=100, command=self.sliding)
         self.slider_threshold.grid(row=1, column=0, sticky="ew")
-        self.slider_threshold.set(0.3)
+        self.slider_threshold.set(0.5)
 
-        self.label_threshold_value = ctk.CTkLabel(self.slider_progressbar_frame, text="30%")
+        self.label_threshold_value = ctk.CTkLabel(self.slider_progressbar_frame, text="50%")
         self.label_threshold_value.grid(row=1, column=1, sticky="ew")
 
         # Chemin de sortie - 4, 5
-        self.entry_video_path_description = ctk.CTkLabel(self, text="Spécifier où sera créé le dossier de sortie :")
-        self.entry_video_path_description.grid(row=4, column=1, padx=(25, 20), pady=(0, 0), sticky="sw")
+        self.entry_video_path_description2 = ctk.CTkLabel(self, text="Spécifier où sera créé le dossier de sortie :")
+        self.entry_video_path_description2.grid(row=4, column=1, padx=(25, 20), pady=(0, 0), sticky="sw")
 
         self.entry_output_folder = ctk.CTkEntry(self, placeholder_text="Chemin du dossier de sortie")
         self.entry_output_folder.grid(row=5, column=1, columnspan=2, padx=(20, 20), pady=(0, 0), sticky="ew")
@@ -190,7 +227,7 @@ class App(ctk.CTk):
         self.button_browse_output_folder.grid(row=5, column=3, padx=(20, 20), pady=(0, 0))
 
         # Play/Stop - 6
-        self.button_process_video = ctk.CTkButton(self, text="Lancer", command=self.process_video_thread)
+        self.button_process_video = ctk.CTkButton(self, text="Lancer", command=self.process)
         self.button_process_video.grid(row=6, column=3, padx=(20, 20), pady=(20, 5))
         self.button_stop_processing = ctk.CTkButton(self, text="Arrêter", command=self.stop_processing)
         self.button_stop_processing.grid(row=6, column=3, padx=(20, 20), pady=(20, 5))
@@ -204,6 +241,18 @@ class App(ctk.CTk):
 
         # Attribut pour stocker l'instance de la classe DetectChanges
         self.detect_changes = None
+        self.queue_tasks_process = None
+
+    def update_label_text(self):
+        selected_value = self.radio_button_var.get()
+        if selected_value == "video":
+            self.entry_video_path_description1.configure(text="Récupérer le chemin de la vidéo à traiter :")
+            self.entry_video_path.delete(0, ctk.END)
+            self.entry_video_path.configure(placeholder_text="Chemin de la vidéo")
+        elif selected_value == "dossier":
+            self.entry_video_path_description1.configure(text="Récupérer le chemin du dossier à traiter :")
+            self.entry_video_path.delete(0, ctk.END)
+            self.entry_video_path.configure(placeholder_text="Chemin du dossier")
 
     def sliding(self, value):
         self.label_threshold_value.configure(text=str(int(value * 100)) + "%")
@@ -224,15 +273,64 @@ class App(ctk.CTk):
         new_scaling_float = int(new_scaling.replace("%", "")) / 100
         ctk.set_widget_scaling(new_scaling_float)
 
+    def browse(self):
+        if self.radio_button_var.get() == "video":
+            self.browse_video()
+        else:
+            self.browse_input_folder()
+
     def browse_video(self):
         file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
         self.entry_video_path.delete(0, ctk.END)
         self.entry_video_path.insert(0, file_path)
 
+    def browse_input_folder(self):
+        folder_path = filedialog.askdirectory()
+        self.entry_video_path.delete(0, ctk.END)
+        self.entry_video_path.insert(0, folder_path)
+
     def browse_output_folder(self):
         folder_path = filedialog.askdirectory()
         self.entry_output_folder.delete(0, ctk.END)
         self.entry_output_folder.insert(0, folder_path)
+
+    def process(self):
+        if self.radio_button_var.get() == "video":
+            self.process_video_thread()
+        else:
+            self.process_folder_thread()
+
+    def process_folder_thread(self):
+        folder_path = self.entry_video_path.get()
+        output_folder = self.entry_output_folder.get()
+        change_threshold = float(self.slider_threshold.get() * 100)
+
+        if (folder_path != "") and (output_folder != ""):
+
+            print("Traitement en cours...")
+
+            self.tasks = []
+
+            for root, dirs, files in os.walk(folder_path):
+                destination_folder = os.path.join(output_folder, os.path.relpath(root, folder_path))
+                os.makedirs(destination_folder, exist_ok=True)
+
+                for file in files:
+                    if file.endswith((".mp4", ".avi", ".mkv")):
+                        video_path = os.path.join(root, file)
+                        self.detect_changes = DetectChanges(video_path, destination_folder, change_threshold, self)
+                        self.tasks.append(self.detect_changes)
+
+            self.toggle_buttons()
+            self.queue_tasks_process = QueueTasks(self.tasks)
+            threading.Thread(target=self.queue_tasks_process.launch_tasks).start()
+
+        else:
+            print("Erreur : Veuillez renseigner les chemins des dossiers d'entrée et de sortie.")   
+
+    def launch_tasks(self):
+        for task in self.tasks:
+            task.start()
 
     def process_video_thread(self):
         video_path = self.entry_video_path.get()
@@ -243,14 +341,22 @@ class App(ctk.CTk):
             self.detect_changes = DetectChanges(video_path, output_folder, change_threshold, self)
             threading.Thread(target=self.detect_changes.detect_changes).start()
             print("Traitement en cours...")
-            self.toggle_buttons()
+
+            if self.radio_button_var.get() == "video":
+                self.toggle_buttons()
         else:
-            print("Erreur : Veuillez renseigner le chemin de la vidéo et le dossier de sortie.")   
+            print("Erreur : Veuillez renseigner le chemin de la vidéo et le dossier de sortie.")
 
     def stop_processing(self):
-        if self.detect_changes:
+        if self.radio_button_var.get() == "dossier":
+            print("Dossier : Traitement arrêté.")
+            self.queue_tasks_process.tasks.clear()
+            self.queue_tasks_process.current_task.stop = True
+            self.toggle_buttons()
+
+        elif self.radio_button_var.get() == "video":
             self.detect_changes.stop = True  # Définit l'attribut stop à True pour arrêter le traitement
-            print("Traitement arrêté.")
+            print("Vidéo : Traitement arrêté.")
             self.toggle_buttons()
         else:
             print("Aucun traitement en cours.")
