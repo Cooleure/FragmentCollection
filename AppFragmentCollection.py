@@ -93,9 +93,10 @@ class DetectChanges:
             app.end_process_dialog_event()
 
 class QueueTasks:
-    def __init__(self, tasks):
+    def __init__(self, tasks, app):
         self.tasks = tasks
         self.current_task = tasks[0]
+        self.app = app
 
     def launch_tasks(self):
         for task in self.tasks:
@@ -103,6 +104,8 @@ class QueueTasks:
             self.thread = threading.Thread(target=task.detect_changes)
             self.thread.start()
             self.thread.join()
+        
+        app.end_process_dialog_event()
 
 
 class ToplevelWindow(ctk.CTkToplevel):
@@ -177,7 +180,7 @@ class App(ctk.CTk):
         self.radio_button_frame.grid_columnconfigure(0, weight=1)
         self.radio_button_frame.grid_rowconfigure(0, weight=1)
 
-        self.radio_button_label = ctk.CTkLabel(self.radio_button_frame, text="Aplliquer sur :", anchor="w")
+        self.radio_button_label = ctk.CTkLabel(self.radio_button_frame, text="Apliquer sur :", anchor="w")
         self.radio_button_label.grid(row=0, column=0, padx=(5, 20), pady=(0, 0), sticky="nsw")
 
         self.radio_button_var = tk.StringVar()
@@ -322,7 +325,7 @@ class App(ctk.CTk):
                         self.tasks.append(self.detect_changes)
 
             self.toggle_buttons()
-            self.queue_tasks_process = QueueTasks(self.tasks)
+            self.queue_tasks_process = QueueTasks(self.tasks, self)
             threading.Thread(target=self.queue_tasks_process.launch_tasks).start()
 
         else:
